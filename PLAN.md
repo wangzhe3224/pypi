@@ -12,7 +12,7 @@
   - [x] **Phase 4.2** - Tool registry + decorator (`registry.py`, `tools.py`) ✅
   - [x] **Phase 4.3** - Agent loop (`core.py`) ✅
   - [x] **Phase 4.4** - Agent class (`agent.py`) ✅
-- [ ] **Phase 5** - `pi.cli` - Core tools (read, bash, edit, write)
+- [x] **Phase 5** - `pi.cli` - Core tools (read, bash, edit, write, ✅ COMPLETE
 - [ ] **Phase 6** - `pi.tui` - Interactive interface
 - [ ] **Phase 7** - Tests + documentation
 Port the core packages of pi-mono (AI coding agent ecosystem) to Python with pythonic implementations.
