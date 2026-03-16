@@ -342,39 +342,51 @@ class TestAgentStreamingProtection:
         """Test that prompt() while streaming throws RuntimeError."""
         from unittest.mock import AsyncMock, patch
 
-        from pi.ai.types import AssistantMessage, StreamEventDone, StreamEventStart, TextContent
+        from pi.ai.types import (
+            AssistantMessage,
+            StreamEventDone,
+            StreamEventStart,
+            TextContent,
+            Usage,
+        )
 
         model = Model(
             id="test",
             name="test",
             api="openai-completions",
             provider="openai",
+            baseUrl="https://api.openai.com/v1",
         )
         agent = Agent(model=model)
 
         # Mock stream that takes time
         async def slow_stream(*args, **kwargs):
-            yield StreamEventStart(partial=AssistantMessage(
-                content=[TextContent(text="")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="",
-                timestamp=1000,
-            ))
+            yield StreamEventStart(
+                partial=AssistantMessage(
+                    content=[TextContent(text="")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=1000,
+                )
+            )
             await asyncio.sleep(0.2)
-            yield StreamEventDone(message=AssistantMessage(
-                content=[TextContent(text="done")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="stop",
-                timestamp=1000,
-            ), reason="stop")
+            yield StreamEventDone(
+                message=AssistantMessage(
+                    content=[TextContent(text="done")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=1000,
+                ),
+                reason="stop",
+            )
 
-        with patch("pi.agent.core.stream", slow_stream):
+        with patch("pi.ai.stream.stream", slow_stream):
             # Start first prompt (don't await)
             task1 = asyncio.create_task(agent.prompt("first"))
 
@@ -394,38 +406,50 @@ class TestAgentStreamingProtection:
         """Test that continue_() while streaming throws RuntimeError."""
         from unittest.mock import patch
 
-        from pi.ai.types import AssistantMessage, StreamEventDone, StreamEventStart, TextContent
+        from pi.ai.types import (
+            AssistantMessage,
+            StreamEventDone,
+            StreamEventStart,
+            TextContent,
+            Usage,
+        )
 
         model = Model(
             id="test",
             name="test",
             api="openai-completions",
             provider="openai",
+            baseUrl="https://api.openai.com/v1",
         )
         agent = Agent(model=model)
 
         async def slow_stream(*args, **kwargs):
-            yield StreamEventStart(partial=AssistantMessage(
-                content=[TextContent(text="")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="",
-                timestamp=1000,
-            ))
+            yield StreamEventStart(
+                partial=AssistantMessage(
+                    content=[TextContent(text="")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=1000,
+                )
+            )
             await asyncio.sleep(0.2)
-            yield StreamEventDone(message=AssistantMessage(
-                content=[TextContent(text="done")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="stop",
-                timestamp=1000,
-            ), reason="stop")
+            yield StreamEventDone(
+                message=AssistantMessage(
+                    content=[TextContent(text="done")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=1000,
+                ),
+                reason="stop",
+            )
 
-        with patch("pi.agent.core.stream", slow_stream):
+        with patch("pi.ai.stream.stream", slow_stream):
             # Start prompt
             task1 = asyncio.create_task(agent.prompt("first"))
             await asyncio.sleep(0.05)
@@ -447,29 +471,39 @@ class TestAgentContinueWithFollowUp:
         """Test that continue_() processes queued follow-up messages."""
         from unittest.mock import patch
 
-        from pi.ai.types import AssistantMessage, StreamEventDone, StreamEventStart, TextContent, UserMessage
+        from pi.ai.types import (
+            AssistantMessage,
+            StreamEventDone,
+            StreamEventStart,
+            TextContent,
+            Usage,
+            UserMessage,
+        )
 
         model = Model(
             id="test",
             name="test",
             api="openai-completions",
             provider="openai",
+            baseUrl="https://api.openai.com/v1",
         )
         agent = Agent(model=model)
 
         # Set up existing conversation
-        agent.replace_messages([
-            UserMessage(content="Initial", timestamp=1000),
-            AssistantMessage(
-                content=[TextContent(text="Initial response")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="stop",
-                timestamp=2000,
-            ),
-        ])
+        agent.replace_messages(
+            [
+                UserMessage(content="Initial", timestamp=1000),
+                AssistantMessage(
+                    content=[TextContent(text="Initial response")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=2000,
+                ),
+            ]
+        )
 
         # Queue follow-up
         agent.follow_up(UserMessage(content="Follow-up", timestamp=3000))
@@ -479,32 +513,36 @@ class TestAgentContinueWithFollowUp:
         async def mock_stream(*args, **kwargs):
             nonlocal response_count
             response_count += 1
-            yield StreamEventStart(partial=AssistantMessage(
-                content=[TextContent(text="")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="",
-                timestamp=1000,
-            ))
-            yield StreamEventDone(message=AssistantMessage(
-                content=[TextContent(text=f"Response {response_count}")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="stop",
-                timestamp=1000,
-            ), reason="stop")
+            yield StreamEventStart(
+                partial=AssistantMessage(
+                    content=[TextContent(text="")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=1000,
+                )
+            )
+            yield StreamEventDone(
+                message=AssistantMessage(
+                    content=[TextContent(text=f"Response {response_count}")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=1000,
+                ),
+                reason="stop",
+            )
 
-        with patch("pi.agent.core.stream", mock_stream):
+        with patch("pi.ai.stream.stream", mock_stream):
             await agent.continue_()
 
         # Follow-up should have been processed
         has_follow_up = any(
-            hasattr(m, "content") and "Follow-up" in str(m.content)
-            for m in agent.messages
+            hasattr(m, "content") and "Follow-up" in str(m.content) for m in agent.messages
         )
         assert has_follow_up
 
@@ -520,29 +558,39 @@ class TestAgentSteeringSemantics:
         """Test that steering processes one message at a time."""
         from unittest.mock import patch
 
-        from pi.ai.types import AssistantMessage, StreamEventDone, StreamEventStart, TextContent, UserMessage
+        from pi.ai.types import (
+            AssistantMessage,
+            StreamEventDone,
+            StreamEventStart,
+            TextContent,
+            Usage,
+            UserMessage,
+        )
 
         model = Model(
             id="test",
             name="test",
             api="openai-completions",
             provider="openai",
+            baseUrl="https://api.openai.com/v1",
         )
         agent = Agent(model=model)
 
         # Set up existing conversation
-        agent.replace_messages([
-            UserMessage(content="Initial", timestamp=1000),
-            AssistantMessage(
-                content=[TextContent(text="Initial response")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="stop",
-                timestamp=2000,
-            ),
-        ])
+        agent.replace_messages(
+            [
+                UserMessage(content="Initial", timestamp=1000),
+                AssistantMessage(
+                    content=[TextContent(text="Initial response")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=2000,
+                ),
+            ]
+        )
 
         # Queue multiple steering messages
         agent.steer(UserMessage(content="Steering 1", timestamp=3000))
@@ -553,26 +601,31 @@ class TestAgentSteeringSemantics:
         async def mock_stream(*args, **kwargs):
             nonlocal response_count
             response_count += 1
-            yield StreamEventStart(partial=AssistantMessage(
-                content=[TextContent(text="")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="",
-                timestamp=1000,
-            ))
-            yield StreamEventDone(message=AssistantMessage(
-                content=[TextContent(text=f"Response {response_count}")],
-                api="openai-completions",
-                provider="openai",
-                model="test",
-                usage={"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0},
-                stopReason="stop",
-                timestamp=1000,
-            ), reason="stop")
+            yield StreamEventStart(
+                partial=AssistantMessage(
+                    content=[TextContent(text="")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=1000,
+                )
+            )
+            yield StreamEventDone(
+                message=AssistantMessage(
+                    content=[TextContent(text=f"Response {response_count}")],
+                    api="openai-completions",
+                    provider="openai",
+                    model="test",
+                    usage=Usage(),
+                    stopReason="stop",
+                    timestamp=1000,
+                ),
+                reason="stop",
+            )
 
-        with patch("pi.agent.core.stream", mock_stream):
+        with patch("pi.ai.stream.stream", mock_stream):
             await agent.continue_()
 
         # With one-at-a-time mode, should have processed 2 steering messages

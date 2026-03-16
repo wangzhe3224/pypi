@@ -166,6 +166,7 @@ class Agent:
         for listener in self._listeners:
             with contextlib.suppress(Exception):
                 listener(event)
+
     # =========================================================================
     # State Mutators
     # =========================================================================
@@ -356,10 +357,12 @@ class Agent:
 
         # Check for queued messages first
         if self._steering_queue:
-            return await self.prompt([])
+            steering_messages = await self._get_steering_messages()
+            return await self.prompt(steering_messages)
 
         if self._follow_up_queue:
-            return await self.prompt([])
+            follow_up_messages = await self._get_follow_up_messages()
+            return await self.prompt(follow_up_messages)
 
         # Build context
         context = AgentContext(

@@ -76,6 +76,8 @@ async def agent_loop(
     async for event in _run_loop(current_context, new_messages, config, signal):
         yield event
 
+    context.messages = current_context.messages
+
 
 async def agent_loop_continue(
     context: AgentContext,
@@ -150,6 +152,20 @@ async def _run_loop(
         new_messages.append(assistant_message)
 
         if not tool_calls:
+            next_messages: list[AgentMessage] | None = None
+            if config.get_steering_messages:
+                next_messages = await config.get_steering_messages()
+            if not next_messages and config.get_follow_up_messages:
+                next_messages = await config.get_follow_up_messages()
+
+            if next_messages:
+                context.messages.extend(next_messages)
+                new_messages.extend(next_messages)
+                for msg in next_messages:
+                    yield AgentEventMessageStart(message=msg)
+                    yield AgentEventMessageEnd(message=msg)
+                yield AgentEventTurnStart()
+                continue
             break
 
     yield AgentEventAgentEnd(messages=new_messages)
