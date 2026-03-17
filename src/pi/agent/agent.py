@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any
 
 from pi.agent.core import agent_loop, agent_loop_continue
@@ -278,24 +278,12 @@ class Agent:
     async def prompt(
         self,
         input: str | AgentMessage | list[AgentMessage],
-    ) -> list[AgentMessage]:
-        """Send a prompt and run the agent loop.
-
-        Args:
-            input: The prompt - string, message, or list of messages.
-
-        Returns:
-            List of new messages generated.
-
-        Raises:
-            RuntimeError: If agent is already streaming.
-        """
+    ) -> AsyncGenerator[AgentEvent, None]:
         if self._state.is_streaming:
             raise RuntimeError(
                 "Agent is already processing. Use steer() or follow_up() to queue messages."
             )
 
-        # Convert input to messages
         if isinstance(input, str):
             from time import time
 
@@ -313,83 +301,64 @@ class Agent:
         else:
             prompts = [input]
 
-        # Build context
         context = AgentContext(
             system_prompt=self._state.system_prompt,
             messages=list(self._state.messages),
             tools=self._state.tools,
         )
 
-        # Build config
         config = self._build_config()
 
-        # Run loop
-        new_messages: list[AgentMessage] = []
         self._abort_event = asyncio.Event()
         self._state.is_streaming = True
 
         try:
             async for event in agent_loop(prompts, context, config, self._abort_event):
                 self._emit(event)
-                if event.type == "agent_end":
-                    new_messages = event.messages
+                yield event
         finally:
             self._state.is_streaming = False
             self._abort_event = None
             self._state.messages = context.messages
 
-        return new_messages
-
-    async def continue_(self) -> list[AgentMessage]:
-        """Continue from current context (for retries/queued messages).
-
-        Returns:
-            List of new messages generated.
-
-        Raises:
-            RuntimeError: If agent is already streaming or no messages to continue from.
-        """
+    async def continue_(self) -> AsyncGenerator[AgentEvent, None]:
         if self._state.is_streaming:
             raise RuntimeError("Agent is already processing. Wait for completion.")
 
         if not self._state.messages:
             raise RuntimeError("No messages to continue from.")
 
-        # Check for queued messages first
         if self._steering_queue:
             steering_messages = await self._get_steering_messages()
-            return await self.prompt(steering_messages)
+            async for event in self.prompt(steering_messages):
+                yield event
+            return
 
         if self._follow_up_queue:
             follow_up_messages = await self._get_follow_up_messages()
-            return await self.prompt(follow_up_messages)
+            async for event in self.prompt(follow_up_messages):
+                yield event
+            return
 
-        # Build context
         context = AgentContext(
             system_prompt=self._state.system_prompt,
             messages=list(self._state.messages),
             tools=self._state.tools,
         )
 
-        # Build config
         config = self._build_config()
 
-        # Run loop
-        new_messages: list[AgentMessage] = []
         self._abort_event = asyncio.Event()
         self._state.is_streaming = True
 
         try:
             async for event in agent_loop_continue(context, config, self._abort_event):
                 self._emit(event)
-                if event.type == "agent_end":
-                    new_messages = event.messages
+                yield event
         finally:
             self._state.is_streaming = False
             self._abort_event = None
             self._state.messages = context.messages
-
-        return new_messages
 
     def abort(self) -> None:
         """Abort current execution."""

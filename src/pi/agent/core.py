@@ -193,15 +193,16 @@ async def _stream_assistant_response(
     )
 
     # Build stream options
-    stream_opts: dict[str, Any] = {}
-    if config.temperature is not None:
-        stream_opts["temperature"] = config.temperature
-    if config.max_tokens is not None:
-        stream_opts["max_tokens"] = config.max_tokens
+    from pi.ai.types import SimpleStreamOptions
+
+    stream_opts = SimpleStreamOptions(
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+    )
 
     partial_message: AssistantMessage | None = None
 
-    async for event in stream(config.model, llm_context, stream_opts if stream_opts else None):  # type: ignore[arg-type]
+    async for event in stream(config.model, llm_context, stream_opts):
         if signal and signal.is_set():
             return
 

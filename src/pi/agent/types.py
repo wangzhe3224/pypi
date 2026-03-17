@@ -10,21 +10,12 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
-    from pi.ai.types import (
-        AssistantMessage,
-        Context,
-        ImageContent,
-        Message,
-        Model,
-        StreamEvent,
-        TextContent,
-        Tool,
-        ToolResultMessage,
-    )
+    from pi.ai.types import Context, Message, Model, Tool
 
 # Import message types at runtime for AgentMessage union
 from pi.ai.types import AssistantMessage as _AssistantMessage
 from pi.ai.types import ImageContent as _ImageContent
+from pi.ai.types import StreamEvent as _StreamEvent
 from pi.ai.types import TextContent as _TextContent
 from pi.ai.types import ToolResultMessage as _ToolResultMessage
 from pi.ai.types import UserMessage as _UserMessage
@@ -173,6 +164,7 @@ class AgentEventTurnEnd(_BaseModel):
     message: _AssistantMessage
     tool_results: list[_ToolResultMessage] = Field(default_factory=list)
 
+
 class AgentEventMessageStart(_BaseModel):
     """Message started."""
 
@@ -185,7 +177,8 @@ class AgentEventMessageUpdate(_BaseModel):
 
     type: Literal["message_update"] = "message_update"
     message: AgentMessage
-    stream_event: StreamEvent
+    stream_event: _StreamEvent
+
 
 class AgentEventMessageEnd(_BaseModel):
     """Message ended."""
@@ -243,15 +236,18 @@ AgentEvent = Annotated[
 
 # Type aliases for config callbacks
 # Using quotes for forward references
-ConvertToLlmFn = Callable[[list[AgentMessage]], "list[Message]"] | Callable[
-    [list[AgentMessage]], Coroutine[Any, Any, "list[Message]"]
-]
+ConvertToLlmFn = (
+    Callable[[list[AgentMessage]], "list[Message]"]
+    | Callable[[list[AgentMessage]], Coroutine[Any, Any, "list[Message]"]]
+)
 TransformContextFn = Callable[
     [list[AgentMessage], asyncio.Event | None],
     Coroutine[Any, Any, list[AgentMessage]],
 ]
 GetApiKeyFn = Callable[[str], str | None | Coroutine[Any, Any, str | None]]
 GetMessagesFn = Callable[[], Coroutine[Any, Any, list[AgentMessage]]]
+
+
 @dataclass
 class AgentLoopConfig:
     """Configuration for agent loop.
@@ -317,7 +313,5 @@ class AgentOptions:
 def default_convert_to_llm(messages: list[AgentMessage]) -> list[Message]:
     """Default convert_to_llm: filter to LLM-compatible messages only."""
     return [
-        m
-        for m in messages
-        if hasattr(m, "role") and m.role in ("user", "assistant", "toolResult")
+        m for m in messages if hasattr(m, "role") and m.role in ("user", "assistant", "toolResult")
     ]

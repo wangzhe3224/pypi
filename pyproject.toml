@@ -38,7 +38,7 @@ dev = [
 ]
 
 [project.scripts]
-pi = "pi.cli.main:main"
+pi = "pi.cli.main:run"
 pi-ai = "pi.ai.cli:main"
 
 [build-system]

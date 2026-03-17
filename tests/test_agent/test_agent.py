@@ -1,12 +1,21 @@
 """Tests for pi.agent.agent module."""
 
 import asyncio
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import pytest
 
 from pi.agent import Agent, tool
 from pi.agent.types import AgentOptions, AgentState, AgentTool
 from pi.ai.types import Model
+
+
+async def collect_events(gen: AsyncGenerator[Any, None]) -> list[Any]:
+    events = []
+    async for event in gen:
+        events.append(event)
+    return events
 
 
 @pytest.fixture
@@ -388,7 +397,7 @@ class TestAgentStreamingProtection:
 
         with patch("pi.ai.stream.stream", slow_stream):
             # Start first prompt (don't await)
-            task1 = asyncio.create_task(agent.prompt("first"))
+            task1 = asyncio.create_task(collect_events(agent.prompt("first")))
 
             # Wait for streaming to start
             await asyncio.sleep(0.05)
@@ -396,7 +405,7 @@ class TestAgentStreamingProtection:
 
             # Second prompt should throw
             with pytest.raises(RuntimeError, match="already processing"):
-                await agent.prompt("second")
+                await collect_events(agent.prompt("second"))
 
             # Cleanup
             await task1
@@ -451,13 +460,13 @@ class TestAgentStreamingProtection:
 
         with patch("pi.ai.stream.stream", slow_stream):
             # Start prompt
-            task1 = asyncio.create_task(agent.prompt("first"))
+            task1 = asyncio.create_task(collect_events(agent.prompt("first")))
             await asyncio.sleep(0.05)
             assert agent.is_streaming
 
             # continue_() should throw
             with pytest.raises(RuntimeError, match="already processing"):
-                await agent.continue_()
+                await collect_events(agent.continue_())
 
             # Cleanup
             await task1
@@ -538,7 +547,7 @@ class TestAgentContinueWithFollowUp:
             )
 
         with patch("pi.ai.stream.stream", mock_stream):
-            await agent.continue_()
+            await collect_events(agent.continue_())
 
         # Follow-up should have been processed
         has_follow_up = any(
@@ -626,7 +635,7 @@ class TestAgentSteeringSemantics:
             )
 
         with patch("pi.ai.stream.stream", mock_stream):
-            await agent.continue_()
+            await collect_events(agent.continue_())
 
         # With one-at-a-time mode, should have processed 2 steering messages
         # resulting in 2 assistant responses
