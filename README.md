@@ -8,17 +8,6 @@ Python port of [pi-mono](https://github.com/badlogic/pi-mono): AI coding agent w
 pip install pi-ai
 ```
 
-## Status
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| Phase 1 | Project skeleton + pydantic types | ✅ Complete |
-| Phase 2 | `pi.ai` - OpenAI provider + streaming | ✅ Complete |
-| Phase 3 | `pi.ai` - Anthropic, Google providers | ✅ Complete |
-| Phase 4 | `pi.agent` - Agent loop + tool registry | ✅ Complete |
-| Phase 5 | `pi.cli` - Core tools (read, bash, edit, write) | ✅ Complete |
-| Phase 6 | `pi.tui` - Interactive interface | 🚧 Pending |
-
 ## CLI Usage
 
 ```bash
