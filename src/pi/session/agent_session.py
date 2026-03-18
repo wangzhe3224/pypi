@@ -22,7 +22,7 @@ class AgentSession:
         self.agent = Agent()
 
         loaded_settings = self.settings.load()
-        self._model_name = model or loaded_settings.default_model or "gpt-4o"
+        self._model_name = model or loaded_settings.default_model or "glm-5"
         self._tools = tools or []
 
         if self._model_name:

@@ -10,8 +10,8 @@ from pi.session.config import get_agent_dir
 
 
 class AgentSettings(BaseModel):
-    default_model: str | None = None
-    thinking_level: str = "off"
+    default_model: str | None = "glm-5"
+    thinking_level: str = "medium"
     compaction_threshold: int = 100000
     compaction_style: str = "summarize"
     max_retries: int = 3

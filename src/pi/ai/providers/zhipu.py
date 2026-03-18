@@ -1,4 +1,12 @@
-"""OpenAI provider implementation."""
+"""Zhipu AI (GLM) provider implementation.
+
+Supports GLM-5, GLM-4.7, GLM-4.6, and other Zhipu AI models.
+Provides OpenAI-compatible API with extended thinking mode support.
+
+API Documentation:
+- International: https://docs.z.ai
+- China: https://docs.bigmodel.cn
+"""
 
 from __future__ import annotations
 
@@ -6,7 +14,7 @@ import contextlib
 import json
 import time
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from openai import AsyncOpenAI
 
@@ -16,7 +24,6 @@ from pi.ai.providers.converters import (
     convert_tools,
     map_stop_reason,
 )
-from pi.env import env
 
 if TYPE_CHECKING:
     from pi.ai.types import (
@@ -28,40 +35,93 @@ if TYPE_CHECKING:
         Usage,
     )
 
+# API endpoints
+ZHIPU_API_URL_CHINA = "https://open.bigmodel.cn/api/paas/v4/"
+ZHIPU_API_URL_INTERNATIONAL = "https://api.z.ai/api/paas/v4/"
+ZHIPU_API_URL_CODING = "https://open.bigmodel.cn/api/coding/paas/v4/"
 
-@provider("openai")
-class OpenAIProvider(Provider):
-    """OpenAI API provider."""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+@provider("zhipu")
+class ZhipuProvider(Provider):
+    """Zhipu AI (GLM) API provider.
+
+    Supports both China and International endpoints.
+    Provides extended thinking mode for reasoning tasks.
+
+    Environment Variables:
+        ZHIPUAI_API_KEY or ZAI_API_KEY: API key for authentication
+
+    Usage:
+        provider = ZhipuProvider()
+        async for event in provider.stream(model, context, options):
+            print(event)
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        *,
+        region: Literal["china", "international", "coding"] = "china",
+        thinking_enabled: bool = True,
+    ):
+        """Initialize Zhipu AI provider.
+
+        Args:
+            api_key: Zhipu AI API key. Falls back to ZHIPUAI_API_KEY or ZAI_API_KEY env vars.
+            base_url: Custom base URL. If not set, uses region-specific default.
+            region: API region - "china", "international", or "coding" (for GLM Coding Plan).
+            thinking_enabled: Whether to enable thinking mode by default for supported models.
+        """
         self._api_key = api_key
         self._base_url = base_url
+        self._region = region
+        self._thinking_enabled = thinking_enabled
 
     @property
     def name(self) -> str:
-        return "openai"
+        return "zhipu"
 
     @property
     def api_type(self) -> str:
         return "openai-completions"
 
-    def _get_client(self, model: Model, options: StreamOptions | None = None) -> AsyncOpenAI:
-        """Create OpenAI client."""
+    def _get_base_url(self) -> str:
+        """Get the base URL based on region."""
+        if self._base_url:
+            return self._base_url
+
+        if self._region == "international":
+            return ZHIPU_API_URL_INTERNATIONAL
+        elif self._region == "coding":
+            return ZHIPU_API_URL_CODING
+        else:
+            return ZHIPU_API_URL_CHINA
+
+    def _get_client(self, _model: Model, options: StreamOptions | None = None) -> AsyncOpenAI:
+        """Create OpenAI client configured for Zhipu AI."""
+        from pi.env import env
+
         api_key = (
-            options.api_key if options and options.api_key else self._api_key or env.openai_api_key
+            options.api_key if options and options.api_key else self._api_key or env.zhipuai_api_key
         )
         if not api_key:
             raise ValueError(
-                "OpenAI API key is required. Set OPENAI_API_KEY environment variable "
-                "or pass it as an argument."
+                "Zhipu AI API key is required. Set ZHIPUAI_API_KEY or ZAI_API_KEY "
+                "environment variable, or pass it as an argument."
             )
 
-        base_url = self._base_url or model.base_url
+        base_url = self._base_url or env.zhipuai_base_url or self._get_base_url()
 
         return AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
         )
+
+    def _supports_thinking(self, model: Model) -> bool:
+        """Check if model supports thinking/reasoning mode."""
+        thinking_models = {"glm-5", "glm-4.7", "glm-4.6", "glm-4.5", "glm-4.5-air"}
+        return model.id.lower() in thinking_models or model.reasoning
 
     async def stream(
         self,
@@ -69,7 +129,11 @@ class OpenAIProvider(Provider):
         context: Context,
         options: StreamOptions | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
-        """Stream responses from OpenAI."""
+        """Stream responses from Zhipu AI.
+
+        Supports thinking mode for GLM-5, GLM-4.7, GLM-4.6, and GLM-4.5 models.
+        When thinking is enabled, the model will output reasoning_content before content.
+        """
         from pi.ai.types import (
             AssistantMessage,
             StreamEventDone,
@@ -77,9 +141,12 @@ class OpenAIProvider(Provider):
             StreamEventStart,
             StreamEventTextDelta,
             StreamEventTextStart,
+            StreamEventThinkingDelta,
+            StreamEventThinkingStart,
             StreamEventToolCallDelta,
             StreamEventToolCallStart,
             TextContent,
+            ThinkingContent,
             ToolCall,
             Usage,
         )
@@ -126,6 +193,35 @@ class OpenAIProvider(Provider):
                 delta = choice.delta
                 if not delta:
                     continue
+
+                # Handle reasoning/thinking content (Zhipu AI specific)
+                reasoning_content = getattr(delta, "reasoning_content", None)
+                if reasoning_content:
+                    if not current_block or current_block.get("type") != "thinking":
+                        if current_block:
+                            async for event in self._finish_block(
+                                current_block, output, partial_args
+                            ):
+                                yield event
+                        current_block = {"type": "thinking", "thinking": ""}
+                        output.content.append(ThinkingContent(thinking=""))
+                        yield StreamEventThinkingStart(
+                            content_index=len(output.content) - 1,
+                            partial=output,
+                        )
+
+                    if current_block.get("type") == "thinking":
+                        current_block["thinking"] += reasoning_content
+                        # Update the actual content
+                        thinking_content = output.content[-1]
+                        if hasattr(thinking_content, "thinking"):
+                            thinking_content.thinking = current_block["thinking"]
+
+                        yield StreamEventThinkingDelta(
+                            content_index=len(output.content) - 1,
+                            delta=reasoning_content,
+                            partial=output,
+                        )
 
                 # Handle text content
                 if delta.content:
@@ -231,12 +327,23 @@ class OpenAIProvider(Provider):
         partial_args: str = "",
     ) -> AsyncGenerator[StreamEvent, None]:
         """Finish and yield end event for current block."""
-        from pi.ai.types import StreamEventTextEnd, StreamEventToolCallEnd, ToolCall
+        from pi.ai.types import (
+            StreamEventTextEnd,
+            StreamEventThinkingEnd,
+            StreamEventToolCallEnd,
+            ToolCall,
+        )
 
         block_type = block.get("type")
         index = len(output.content) - 1
 
-        if block_type == "text":
+        if block_type == "thinking":
+            yield StreamEventThinkingEnd(
+                content_index=index,
+                content=block.get("thinking", ""),
+                partial=output,
+            )
+        elif block_type == "text":
             yield StreamEventTextEnd(
                 content_index=index,
                 content=block.get("text", ""),
@@ -244,6 +351,7 @@ class OpenAIProvider(Provider):
             )
         elif block_type == "toolCall":
             # Finalize arguments
+            arguments = {}
             with contextlib.suppress(json.JSONDecodeError):
                 arguments = json.loads(partial_args)
             tool_content = output.content[-1]
@@ -262,7 +370,7 @@ class OpenAIProvider(Provider):
         context: Context,
         options: StreamOptions | None = None,
     ) -> dict[str, Any]:
-        """Build OpenAI API request parameters."""
+        """Build Zhipu AI API request parameters."""
         params: dict[str, Any] = {
             "model": model.id,
             "messages": convert_messages(model, context),
@@ -272,12 +380,20 @@ class OpenAIProvider(Provider):
 
         if options:
             if options.max_tokens is not None:
-                params["max_completion_tokens"] = options.max_tokens
+                params["max_tokens"] = options.max_tokens
             if options.temperature is not None:
                 params["temperature"] = options.temperature
 
         if context.tools:
             params["tools"] = convert_tools(context.tools)
+
+        # Enable thinking mode for supported models
+        if self._supports_thinking(model) and self._thinking_enabled:
+            params["extra_body"] = {
+                "thinking": {
+                    "type": "enabled",
+                }
+            }
 
         return params
 
@@ -324,58 +440,12 @@ class OpenAIProvider(Provider):
         )
 
     async def list_models(self) -> list[Model]:
-        """List available OpenAI models."""
-        # Return common models
-        from pi.ai.types import Model, ModelCost
-
-        return [
-            Model(
-                id="gpt-4o",
-                name="GPT-4o",
-                api="openai-completions",
-                provider="openai",
-                base_url="https://api.openai.com/v1",
-                cost=ModelCost(input=2.5, output=10.0),
-                context_window=128000,
-                max_tokens=16384,
-            ),
-            Model(
-                id="gpt-4o-mini",
-                name="GPT-4o Mini",
-                api="openai-completions",
-                provider="openai",
-                base_url="https://api.openai.com/v1",
-                cost=ModelCost(input=0.15, output=0.6),
-                context_window=128000,
-                max_tokens=16384,
-            ),
-            Model(
-                id="gpt-4-turbo",
-                name="GPT-4 Turbo",
-                api="openai-completions",
-                provider="openai",
-                base_url="https://api.openai.com/v1",
-                cost=ModelCost(input=10.0, output=30.0),
-                context_window=128000,
-                max_tokens=4096,
-            ),
-            Model(
-                id="gpt-3.5-turbo",
-                name="GPT-3.5 Turbo",
-                api="openai-completions",
-                provider="openai",
-                base_url="https://api.openai.com/v1",
-                cost=ModelCost(input=0.5, output=1.5),
-                context_window=16385,
-                max_tokens=4096,
-            ),
-        ]
+        """List available Zhipu AI models."""
+        return _get_zhipu_models()
 
     def get_model(self, model_id: str) -> Model | None:
         """Get a specific model by ID."""
-        import asyncio
-
-        models = asyncio.run(self.list_models())
+        models = _get_zhipu_models()
         for model in models:
             if model.id == model_id:
                 return model
@@ -384,9 +454,137 @@ class OpenAIProvider(Provider):
     @staticmethod
     def get_env_api_key_name() -> str | None:
         """Get the environment variable name for the API key."""
-        return "OPENAI_API_KEY"
+        # Check both variants
+        return "ZHIPUAI_API_KEY"
 
     @staticmethod
     def get_default_base_url() -> str:
         """Get the default base URL for this provider."""
-        return "https://api.openai.com/v1"
+        return ZHIPU_API_URL_CHINA
+
+
+def _get_zhipu_models() -> list[Model]:
+    """Get list of Zhipu AI models."""
+    from pi.ai.types import Model, ModelCost
+
+    return [
+        # GLM-5 - Flagship model with 200K context
+        Model(
+            id="glm-5",
+            name="GLM-5",
+            api="openai-completions",
+            provider="zhipu",
+            base_url=ZHIPU_API_URL_CHINA,
+            reasoning=True,
+            cost=ModelCost(
+                input=0.5,  # $0.5 per million input tokens
+                output=2.0,  # $2.0 per million output tokens
+            ),
+            context_window=200000,
+            max_tokens=128000,
+        ),
+        # GLM-4.7 - Previous flagship with thinking
+        Model(
+            id="glm-4.7",
+            name="GLM-4.7",
+            api="openai-completions",
+            provider="zhipu",
+            base_url=ZHIPU_API_URL_CHINA,
+            reasoning=True,
+            cost=ModelCost(
+                input=0.3,
+                output=1.2,
+            ),
+            context_window=128000,
+            max_tokens=16000,
+        ),
+        # GLM-4.6 - Vision model
+        Model(
+            id="glm-4.6",
+            name="GLM-4.6",
+            api="openai-completions",
+            provider="zhipu",
+            base_url=ZHIPU_API_URL_CHINA,
+            reasoning=True,
+            input=["text", "image"],
+            cost=ModelCost(
+                input=0.2,
+                output=0.8,
+            ),
+            context_window=128000,
+            max_tokens=16000,
+        ),
+        # GLM-4.5 - Standard model with thinking
+        Model(
+            id="glm-4.5",
+            name="GLM-4.5",
+            api="openai-completions",
+            provider="zhipu",
+            base_url=ZHIPU_API_URL_CHINA,
+            reasoning=True,
+            cost=ModelCost(
+                input=0.15,
+                output=0.6,
+            ),
+            context_window=128000,
+            max_tokens=16000,
+        ),
+        # GLM-4.5-Air - Lightweight fast model
+        Model(
+            id="glm-4.5-air",
+            name="GLM-4.5 Air",
+            api="openai-completions",
+            provider="zhipu",
+            base_url=ZHIPU_API_URL_CHINA,
+            reasoning=True,
+            cost=ModelCost(
+                input=0.05,
+                output=0.2,
+            ),
+            context_window=128000,
+            max_tokens=16000,
+        ),
+        # GLM-4-Plus - High performance model
+        Model(
+            id="glm-4-plus",
+            name="GLM-4 Plus",
+            api="openai-completions",
+            provider="zhipu",
+            base_url=ZHIPU_API_URL_CHINA,
+            cost=ModelCost(
+                input=0.1,
+                output=0.4,
+            ),
+            context_window=128000,
+            max_tokens=4096,
+        ),
+        # GLM-4-Flash - Fast and cheap
+        Model(
+            id="glm-4-flash",
+            name="GLM-4 Flash",
+            api="openai-completions",
+            provider="zhipu",
+            base_url=ZHIPU_API_URL_CHINA,
+            cost=ModelCost(
+                input=0.01,
+                output=0.01,
+            ),
+            context_window=128000,
+            max_tokens=4096,
+        ),
+        # GLM-4V-Plus - Vision model
+        Model(
+            id="glm-4v-plus",
+            name="GLM-4V Plus",
+            api="openai-completions",
+            provider="zhipu",
+            base_url=ZHIPU_API_URL_CHINA,
+            input=["text", "image"],
+            cost=ModelCost(
+                input=0.1,
+                output=0.4,
+            ),
+            context_window=8192,
+            max_tokens=1024,
+        ),
+    ]

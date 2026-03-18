@@ -58,3 +58,4 @@ dmypy.json
 # Local configuration
 .env.local
 .env.*.local
+.env

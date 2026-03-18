@@ -4,6 +4,7 @@ from pi.ai.providers.base import Provider as ProviderProtocol
 from pi.ai.providers.base import ProviderRegistry, provider
 from pi.ai.providers.dummy import DummyProvider
 from pi.ai.providers.openai import OpenAIProvider
+from pi.ai.providers.zhipu import ZhipuProvider
 from pi.ai.stream import complete, stream
 from pi.ai.types import (
     Api,
@@ -97,6 +98,7 @@ __all__ = [
     # Provider
     "DummyProvider",
     "OpenAIProvider",
+    "ZhipuProvider",
     "ProviderProtocol",
     "ProviderRegistry",
     "provider",

@@ -26,6 +26,7 @@ dependencies = [
     "rich>=13.9",
     "prompt-toolkit>=3.0.48",
     "markdown-it-py>=3.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]

@@ -1,9 +1,11 @@
 """LLM Provider implementations."""
 
+
 from pi.ai.providers.anthropic import AnthropicProvider
 from pi.ai.providers.base import Provider, ProviderRegistry, provider
 from pi.ai.providers.google import GoogleProvider
 from pi.ai.providers.openai import OpenAIProvider
+from pi.ai.providers.zhipu import ZhipuProvider  # Add ZhipuProvider
 
 __all__ = [
     "Provider",
@@ -12,4 +14,5 @@ __all__ = [
     "OpenAIProvider",
     "AnthropicProvider",
     "GoogleProvider",
+    "ZhipuProvider",
 ]
